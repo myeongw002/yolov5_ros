@@ -30,7 +30,9 @@ class MovingAverage:
             s += x * self.weights[i]
         return float(s) / sum(self.weights[:len(self.data)])
 
-mov_avg = MovingAverage(5)
+mov_avg = MovingAverage(10)
+center_x_avg = MovingAverage(10)
+center_y_avg = MovingAverage(10)
 
 # Create a publisher for the marker
 marker_pub = rospy.Publisher('traffic_cones_marker', Marker, queue_size=10)
@@ -50,13 +52,14 @@ car_center_w = 0
 
 
 def calc_steer(steer):
-    erp_steer = ESerial()
+    erp_serial = ESerial()
     mov_avg.add_sample(steer)
     avg_steer = int(mov_avg.get_wmm())
-    erp_steer.steer = avg_steer
-    steer_pub.publish(erp_steer)
+    erp_serial.steer = avg_steer
+    erp_serial.speed = 15
+    steer_pub.publish(erp_serial)
     
-    print(avg_steer)
+    print(avg_steer    , end='\r')
 
 def bounding_boxes_callback(msg):
     # Clear the previous cone lists
@@ -81,6 +84,7 @@ def bounding_boxes_callback(msg):
 
 
 def image_callback(image_msg):
+    
     # Convert the compressed image message to OpenCV format
     image = cv_bridge.compressed_imgmsg_to_cv2(image_msg)
 
@@ -122,7 +126,14 @@ def image_callback(image_msg):
     if len(left_cones) > 0 and len(right_cones) > 0:
         center_x = int((left_cones[0].x + right_cones[0].x) / 2)
         center_y = int((left_cones[0].y + right_cones[0].y) / 2)
-        center_point = (center_x, center_y)
+        
+        center_x_avg.add_sample(center_x)
+        center_y_avg.add_sample(center_y)
+        
+        avg_center_x = int(center_x_avg.get_wmm())
+        avg_center_y = int(center_y_avg.get_wmm())
+        
+        center_point = (avg_center_x, avg_center_y)
         cv2.circle(image, center_point, 3, (255, 255, 255), -1)
         cv2.line(image, car_center , center_point, (255, 255, 255), line_thickness)
         steer = ((center_x - car_center_w) / (car_center_w * 0.5)) * 2000
@@ -140,7 +151,8 @@ def image_callback(image_msg):
 sub_boxes = rospy.Subscriber('/yolov5/detections_c', BoundingBoxes, bounding_boxes_callback)
 
 # Subscribe to the compressed image topic
-sub_image = rospy.Subscriber('/usb_cam/image_raw/compressed', CompressedImage, image_callback)
+#sub_image = rospy.Subscriber('/usb_cam/image_raw/compressed', CompressedImage, image_callback)
+sub_image = rospy.Subscriber('/zed/zed_node/rgb_raw/image_raw_color/compressed', CompressedImage, image_callback)
 
 rospy.spin()
 
