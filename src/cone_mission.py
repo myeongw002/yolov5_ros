@@ -7,7 +7,7 @@ from detection_msgs.msg import BoundingBox, BoundingBoxes
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 from std_msgs.msg import Int64
-from erp42_serial.msg import ESerial
+from erp42_serial.msg import ESerial, setState
 import cv2
 from cv_bridge import CvBridge
 import numpy as np
@@ -39,7 +39,10 @@ class MovingAverage:
         self.samples = n
         self.data = []
         self.weights = list(range(1, n+1))
-        self.steer_pub = rospy.Publisher('erp42_serial', ESerial, queue_size=10)
+        self.state_pub = rospy.Publisher('set_state',setState , queue_size=10)
+        self.max_speed = int(rospy.get_param('~max_speed',5))
+        self.L = 1.04
+        self.set_state = setState()
         
     def add_sample(self, new_sample):
         if len(self.data) < self.samples:
@@ -53,19 +56,39 @@ class MovingAverage:
             s += x * self.weights[i]
         return float(s) / sum(self.weights[:len(self.data)])
 
-    def calc_steer(self,steer):
-        erp_serial = ESerial()
-        self.add_sample(steer)
-        erp_serial.steer = int(self.get_wmm())
-        erp_serial.speed = 40
-        self.steer_pub.publish(erp_serial)
+    def calculate_curvature(self, steer_angle):
+        # Convert steering angle from degrees to radians
+        steer_angle_rad = steer_angle * (math.pi / 180)
         
-        print(erp_serial.steer     , end='\r')
+        curvature = 2 * math.sin(steer_angle_rad) / self.L
+
+        return abs(curvature)
+
+    def calculate_speed(self, curvature,Kf=0.5538):
+        speed = self.max_speed * (1 - curvature * Kf)
+        # Ensure speed is positive and doesn't exceed v_max
+        speed = max(1, min(self.max_speed, speed))
+        return speed
+
+
+    def calc_steer(self,steer):
+        
+        #print(steer)
+        self.add_sample(steer)
+        self.set_state.set_gear = 0
+        self.set_state.set_degree = self.get_wmm()
+        curvature = self.calculate_curvature(self.set_state.set_degree)        
+        self.set_state.set_velocity = self.calculate_speed(curvature,0.553)
+        
+        self.state_pub.publish(self.set_state)        
+        print(f'speed:{self.set_state.set_velocity}, steer:{steer}')
+
+
 
 
 def publish_marker(points, color):
     marker_msg = Marker()
-    marker_msg.header.frame_id = "zed_base_link"  # Set the frame_id according to your robot's frame
+    marker_msg.header.frame_id = "base_link"  # Set the frame_id according to your robot's frame
     marker_msg.header.stamp = rospy.Time.now()
     marker_msg.ns = "interpolated_paths"
     marker_msg.id = 0
@@ -79,9 +102,9 @@ def publish_marker(points, color):
     marker_msg.color.b = color[2]
     for point in points:
         p = Point()
-        p.x = point[2] #zed x = depth z
-        p.y = -point[0]  #zed y  = depth -x
-        p.z = -point[1] #zed z = depth y
+        p.x = point[0] #real world x = depth image z
+        p.y = point[2]  #real world y  = depth image -x
+        p.z = 0#-point[1] #real world z = depth image y
         marker_msg.points.append(p)
     return marker_msg
 
@@ -124,7 +147,7 @@ def interpolate_and_plot_path(XYZ_coordinates):
     # Evaluate the interpolated path at desired intervals (e.g., 100 points along the path)
     u_new = np.linspace(0, 1, 5)
     interpolated_points = np.array(splev(u_new, tck)).T
-
+    
     # Plot the interpolated path on the XZ plane
     ax.plot(interpolated_points[:, 0], interpolated_points[:, 2], '-r')
     
@@ -136,7 +159,7 @@ def cal_XYZ(cones, depth_image):
     depth_pixel_array = []
     center_array = np.empty((0,3))
     for i in range(len(cones)):
-        if cones[0].Class == "yellow_cone":
+        if cones[i].Class == "yellow_cone":
             xp = cones[i].xmax
             yp = cones[i].ymax
         else:
@@ -164,6 +187,7 @@ def cal_XYZ(cones, depth_image):
 
 XYZ_yellow = np.array([])
 XYZ_blue = np.array([])
+
 def depth_callback(msg):
     global cv_bridge, XYZ_yellow, XYZ_blue
     depth_image = cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
@@ -176,6 +200,23 @@ def depth_callback(msg):
         XYZ_blue, center_blue = cal_XYZ(blue_cones, depth_image)
     except:
         pass
+
+
+def generate_virtual_line(actual_points, distance=1.0):
+    """
+    Generate a virtual line parallel to the actual_points and at a given distance.
+    Assumes the cones are always to the left of the centerline.
+    """
+    virtual_points = np.copy(actual_points)
+
+    if virtual_points.ndim == 2 :
+        virtual_points[:, 0] += distance  # adjust the X-coordinates by the given distance
+        virtual_points[:, 2] -= abs(distance)
+        
+    else:
+        pass
+          
+    return virtual_points
 
 
 if __name__ == '__main__':
@@ -195,7 +236,7 @@ if __name__ == '__main__':
     rospy.wait_for_message(box_topic, BoundingBoxes)
     rate = rospy.Rate(30)
     while not rospy.is_shutdown():
-
+        
         if XYZ_yellow.shape[0] != 0 and XYZ_blue.shape[0] != 0:
             line = ax.plot(XYZ_yellow[:,0],XYZ_yellow[:,2],'oy')
             line = ax.plot(XYZ_blue[:,0],XYZ_blue[:,2],'ob')
@@ -206,23 +247,72 @@ if __name__ == '__main__':
             except Exception as e:
                 print(e)
                 
-            if interpolated_yellow is not None and interpolated_blue is not None:
-                # Calculate the centerline between the interpolated paths
-                centerline = (interpolated_yellow + interpolated_blue) / 2
+        elif XYZ_yellow.shape[0] == 0 and XYZ_blue.shape[0] != 0:
+            line = ax.plot(XYZ_blue[:,0],XYZ_blue[:,2],'ob')
+            interpolated_blue = interpolate_and_plot_path(np.vstack((XYZ_blue[:, 0],XYZ_blue[:, 1], XYZ_blue[:, 2])).T)
+            
+            if interpolated_blue is  None :
+                interpolated_blue = XYZ_blue    
+                interpolated_yellow = generate_virtual_line(interpolated_blue -2)
+                line = ax.plot(interpolated_yellow[:,0],interpolated_yellow[:,2],'oy')
+            else:
+                virtual_yellow = generate_virtual_line(interpolated_blue -2)
+                interpolated_yellow = interpolate_and_plot_path(virtual_yellow)     
+                line = ax.plot(interpolated_yellow[:,0],interpolated_yellow[:,2],'oy')  
+            
+                      
+        elif XYZ_yellow.shape[0] != 0 and XYZ_blue.shape[0] == 0:
+            line = ax.plot(XYZ_yellow[:,0],XYZ_yellow[:,2],'oy')
+            interpolated_yellow = interpolate_and_plot_path(np.vstack((XYZ_yellow[:, 0],XYZ_yellow[:, 1], XYZ_yellow[:, 2])).T)
+            
+            if interpolated_yellow is  None :
+                interpolated_yellow = XYZ_yellow    
+                interpolated_blue = generate_virtual_line(interpolated_yellow, 2)
+                line = ax.plot(interpolated_blue[:,0],interpolated_blue[:,2],'ob')
+            else:
+                virtual_blue = generate_virtual_line(interpolated_yellow, 2)
+                interpolated_blue = interpolate_and_plot_path(virtual_blue)      
+                line = ax.plot(interpolated_blue[:,0],interpolated_blue[:,2],'ob')
 
-                # Plot the centerline on the XZ plane
-                ax.plot(centerline[:, 0], centerline[:, 2], '-g')
-                yellow_maker = publish_marker(interpolated_yellow, (1.0, 1.0, 0.0))  # Red for interpolated yellow path
-                blue_maker = publish_marker(interpolated_blue, (0.0, 0.0, 1.0))   # Blue for interpolated blue path
-                center_marker = publish_marker(centerline, (0.0, 1.0, 0.0))          # Green for centerline                     
-                yellow_marker_publisher.publish(yellow_maker)          
-                blue_marker_publisher.publish(blue_maker)
-                center_marker_publisher.publish(center_marker)
-                #steer_avg.calc_steer(2000*centerline[0][0])
-               
+        else:
+            
+            continue     
+        
+        if interpolated_yellow is None and interpolated_blue is not None:
+            interpolated_yellow = generate_virtual_line(interpolated_blue -2)          
+
+        elif interpolated_yellow is not None and interpolated_blue is None:
+            interpolated_blue = generate_virtual_line(interpolated_yellow, 2)
+
+        try:                    
+            # Calculate the centerline between the interpolated paths
+            centerline = (interpolated_yellow + interpolated_blue) / 2
+
+            # Plot the centerline on the XZ plane
+            ax.plot(centerline[:, 0], centerline[:, 2], '-g')
+            yellow_maker = publish_marker(interpolated_yellow, (1.0, 1.0, 0.0))  
+            # Red for interpolated yellow path
+            blue_maker = publish_marker(interpolated_blue, (0.0, 0.0, 1.0))   
+            # Blue for interpolated blue path
+            center_marker = publish_marker(centerline, (0.0, 1.0, 0.0))          
+            # Green for centerline                     
+            yellow_marker_publisher.publish(yellow_maker)          
+            blue_marker_publisher.publish(blue_maker)
+            center_marker_publisher.publish(center_marker)
+            
+            x = centerline[0][2]
+            y = centerline[0][0]
+            angle_rad = np.arctan2(y, x)
+            angle_deg = np.degrees(angle_rad)
+            steer_avg.calc_steer(angle_deg) 
+                             
             figure.canvas.draw()
             figure.canvas.flush_events()
             plt.cla()
+            
+        except Exception as e:
+            print(e)
+                    
         rate.sleep()
     
         

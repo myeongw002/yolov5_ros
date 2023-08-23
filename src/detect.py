@@ -50,6 +50,7 @@ class Yolov5Detector:
         # Initialize model
         self.device = select_device(str(rospy.get_param("~device","")))
         self.model = DetectMultiBackend(weights, device=self.device, dnn=rospy.get_param("~dnn"), data=rospy.get_param("~data"))
+        
         self.stride, self.names, self.pt, self.jit, self.onnx, self.engine = (
             self.model.stride,
             self.model.names,
@@ -100,6 +101,9 @@ class Yolov5Detector:
         
         # Initialize CV_Bridge
         self.bridge = CvBridge()
+
+
+
 
     def callback(self, data):
         """adapted from yolov5/detect.py"""

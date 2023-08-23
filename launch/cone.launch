@@ -10,7 +10,7 @@
     <arg name="line_thickness" default="3"/>
     <arg name="dnn" default="true"/>
     <arg name="half" default="false"/>
-
+    
     <!-- replace imgsz -->
     <arg name="inference_size_h" default="640"/>
     <arg name="inference_size_w" default="640"/>
@@ -19,14 +19,14 @@
     <arg name="view_image" default="true"/>
 
     <!-- ROS topics -->
-    <arg name="input_image_topic" default="/zed/zed_node/left/image_rect_color/compressed"/>
+    <arg name="input_image_topic" default="/zed/zed_node/rgb/image_rect_color/compressed"/>
     <arg name="output_topic" default="/yolov5/detections"/>
     <arg name="depth_image_topic" default = "/zed/zed_node/depth/depth_registered"/>
     
     <!-- Optional topic (publishing annotated image) -->
     <arg name="publish_image" default="false"/>
     <arg name="output_image_topic" default="/yolov5/image_out"/>
-
+    <arg name="max_speed" default="2"/>
 
     <node pkg="yolov5_ros" name="detect" type="detect_center.py" output="screen">
         <param name="weights" value="$(arg weights)"/>
@@ -52,9 +52,10 @@
         <param name="output_image_topic" value="$(arg output_image_topic)"/>
     </node>
 
-    <node pkg="yolov5_ros" name="depth_sub" type="detect_sub_depth2.py" output="screen">
+    <node pkg="yolov5_ros" name="depth_sub" type="cone_mission2.py" output="screen">
         <param name="input_box_topic" value="$(arg output_topic)"/>
         <param name="depth_image_topic" value="$(arg depth_image_topic)"/>
+        <param name="max_speed" value="$(arg max_speed)"/>
     </node>
     
 
