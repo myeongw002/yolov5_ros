@@ -93,26 +93,29 @@ class Cone_Detector:
         self.yellow_cones = self.yellow_cones[:4]
         self.blue_cones = self.blue_cones[:4]        
 
-    def interpolate_path(self, XYZ_coordinates):
-        m = XYZ_coordinates.shape[0]
-        if m <= 1:
-            return XYZ_coordinates  # Not enough data points for interpolation
 
+
+    def interpolate_path(self,XYZ_coordinates):
+        #print("XYZ_coordinates shape:", XYZ_coordinates.shape)
+        m = XYZ_coordinates.shape[0]
+        if m == 1:
+            return  XYZ_coordinates
+        elif m < 1:
+            return np.array([])     # Not enough data points for interpolation
         if np.any(np.isnan(XYZ_coordinates)) or np.any(np.isinf(XYZ_coordinates)):
             return  # Contains NaN or Inf, cannot interpolate
 
-        # Interpolation on the XZ plane
-        f = interp1d(XYZ_coordinates[:, 2], XYZ_coordinates[:, 0], kind='slinear', fill_value="extrapolate")
-
-        # Evaluate the interpolated path at desired intervals
-        z_new = np.linspace(XYZ_coordinates[:, 2].min(), XYZ_coordinates[:, 2].max(), 5)
-        x_new = f(z_new)
+        # Choose the degree of the spline based on the number of data points
+        k = max(1, min(2, m - 1))  # Use k=2 for quadratic interpolation if enough data points, else use the highest degree possible
         
+        # Perform spline interpolation on the XZ coordinates
         
-        # Use the interpolated x and original y values to create the new points
-        y_new = np.full_like(x_new, XYZ_coordinates[0, 1])
-        interpolated_points = np.column_stack((x_new, y_new, z_new))
+        tck, u = splprep([XYZ_coordinates[:, 0], XYZ_coordinates[:, 1], XYZ_coordinates[:, 2]], k=k, s=0)
 
+        # Evaluate the interpolated path at desired intervals (e.g., 100 points along the path)
+        u_new = np.linspace(0, 1, 5)
+        interpolated_points = np.array(splev(u_new, tck)).T
+        
         # Plot the interpolated path on the XZ plane
         self.ax.plot(interpolated_points[:, 0], interpolated_points[:, 2], '-r')
         
@@ -180,8 +183,15 @@ class Cone_Detector:
               
         return virtual_points
     
-    def main(self):
+    def calculate_centerline(self, interpolated_yellow, interpolated_blue, bias_yellow=0.5, bias_blue=0.5):
         
+        centerline = bias_yellow * interpolated_yellow + bias_blue * interpolated_blue
+        centerline /= (bias_yellow + bias_blue)
+        
+        return centerline
+    
+    
+    def main(self):
         steer_avg = MovingAverage(5)
         distance = math.sqrt(2.2)
         rate = rospy.Rate(30)
@@ -196,24 +206,25 @@ class Cone_Detector:
                 if interpolated_yellow.shape[0] != 0 and interpolated_blue.shape[0] != 0:
                     self.line = self.ax.plot(self.XYZ_blue[:,0],self.XYZ_blue[:,2],'ob')        
                     self.line = self.ax.plot(self.XYZ_yellow[:,0],self.XYZ_yellow[:,2],'oy')  
-                         
+                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue, 0.6, 0.4)  
+                       
                 elif interpolated_yellow.shape[0] == 0 and interpolated_blue.shape[0] != 0:                  
                     self.line = self.ax.plot(self.XYZ_blue[:,0],self.XYZ_blue[:,2],'ob')    
                     virtual_yellow = self.generate_virtual_line(interpolated_blue, -distance)
                     self.line = self.ax.plot(virtual_yellow[:,0],virtual_yellow[:,2],'oy')
                     interpolated_yellow = self.interpolate_path(virtual_yellow)
+                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue)
                     
                 elif interpolated_yellow.shape[0] != 0  and interpolated_blue.shape[0] == 0:            
                     self.line = self.ax.plot(self.XYZ_yellow[:,0],self.XYZ_yellow[:,2],'oy')   
                     virtual_blue = self.generate_virtual_line(interpolated_yellow, distance)
                     self.line = self.ax.plot(virtual_blue[:,0],virtual_blue[:,2],'ob')
                     interpolated_blue = self.interpolate_path(virtual_blue)
-                   
+                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue)
+                    
                 else:   
                     continue
        
-                # Calculate the centerline between the interpolated paths
-                centerline = (interpolated_yellow + interpolated_blue) / 2
                 self.line = self.ax.plot(centerline[:,0],centerline[:,2],'og')
                 # Plot the centerline on the XZ plane
                 self.ax.plot(centerline[:, 0], centerline[:, 2], '-g')
@@ -291,7 +302,7 @@ class MovingAverage:
         self.set_state.set_gear = 0
         self.set_state.set_degree = self.get_wmm()
         #curvature = self.calculate_curvature(self.set_state.set_degree)        
-        self.set_state.set_velocity = 2 #self.calculate_speed(curvature, 0.3)
+        self.set_state.set_velocity = self.max_speed #self.calculate_speed(curvature, 0.3)
         
         self.state_pub.publish(self.set_state)        
         print(f'speed:{self.set_state.set_velocity}, steer:{steer}')

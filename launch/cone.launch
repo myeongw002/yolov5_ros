@@ -26,6 +26,8 @@
     <!-- Optional topic (publishing annotated image) -->
     <arg name="publish_image" default="false"/>
     <arg name="output_image_topic" default="/yolov5/image_out"/>
+    
+    <!-- Speed parameter-->
     <arg name="max_speed" default="2"/>
 
     <node pkg="yolov5_ros" name="detect" type="detect_center.py" output="screen">
@@ -52,7 +54,7 @@
         <param name="output_image_topic" value="$(arg output_image_topic)"/>
     </node>
 
-    <node pkg="yolov5_ros" name="depth_sub" type="cone_mission2.py" output="screen">
+    <node pkg="yolov5_ros" name="depth_sub" type="cone_mission3.py" output="screen">
         <param name="input_box_topic" value="$(arg output_topic)"/>
         <param name="depth_image_topic" value="$(arg depth_image_topic)"/>
         <param name="max_speed" value="$(arg max_speed)"/>
