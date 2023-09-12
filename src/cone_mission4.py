@@ -14,10 +14,10 @@ import numpy as np
 from scipy.interpolate import splprep, splev
 import math
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-
- 
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+import traceback
 
 
 class Cone_Detector:
@@ -79,8 +79,6 @@ class Cone_Detector:
 
 
     def bounding_boxes_callback(self,msg):
-        yellow_list = []
-        blue_list = []
         # Clear the previous cone lists
         self.yellow_cones.clear()
         self.blue_cones.clear()
@@ -88,15 +86,21 @@ class Cone_Detector:
         # Extract yellow and blue cones based on the label names
         for bounding_box in msg.bounding_boxes:
             if bounding_box.Class == "yellow_cone":
-                yellow_list.append(bounding_box)
+                self.yellow_cones.append(bounding_box)
             elif bounding_box.Class == "blue_cone":
-                blue_list.append(bounding_box)
+                self.blue_cones.append(bounding_box)
 
         # Sort the cones by ycenter in descending order
-        yellow_list.sort(key=lambda box: (box.ymax, abs(box.xmax - self.img_center)), reverse=True)
-        blue_list.sort(key=lambda box: (box.ymax, abs(box.xmin - self.img_center)), reverse=True)
-        self.yellow_cones = yellow_list[:4]
-        self.blue_cones = blue_list[:4]        
+        try:
+            self.yellow_cones.sort(key=lambda box: box.ymax, reverse=True)
+            self.yellow_cones.sort(key=lambda box: abs(self.yellow_cones[0].xmax-box.xmax), reverse=False)
+        except:
+            pass
+        try:    
+            self.blue_cones.sort(key=lambda box: box.ymax, reverse=True)
+            self.blue_cones.sort(key=lambda box: abs(self.blue_cones[0].xmax-box.xmax), reverse=False)
+        except:
+            passs
         #print('detected yellow',len(self.yellow_cones))
         #print('detected blue',len(self.blue_cones))
 
@@ -122,7 +126,7 @@ class Cone_Detector:
         tck, u = splprep([XYZ_coordinates[:, 0], XYZ_coordinates[:, 1], XYZ_coordinates[:, 2]], k=k, s=0)
 
         # Evaluate the interpolated path at desired intervals (e.g., 100 points along the path)
-        u_new = np.linspace(0, 1, 5)
+        u_new = np.linspace(0, 1, 10)
         interpolated_points = np.array(splev(u_new, tck)).T
         
         # Plot the interpolated path on the XZ plane
@@ -174,16 +178,43 @@ class Cone_Detector:
             #print('rows', self.XYZ_yellow.shape[0])
             #print('calc yellow',len(yellow_center))
         except:
+            self.XYZ_yellow = np.array([])
             pass
             
         try:
             self.XYZ_blue, blue_center = self.cal_XYZ(self.blue_cones, self.depth_image)
             #print('calc blue',len(blue_center))
         except:
+            self.XYZ_blue = np.array([])
             pass
       
       
       
+    def lane_regression(self, XYZ, degree=3):
+        # Check if the number of points is below the threshold
+        if XYZ.shape[0] < degree + 1:
+            self.ax.plot(XYZ[:, 0], XYZ[:, 2], '-r')
+            return XYZ
+        X = XYZ[:, 0].reshape(-1, 1)
+        Z = XYZ[:, 2]
+        
+        # Transform data to allow polynomial regression
+        poly = PolynomialFeatures(degree=degree)
+        X_poly = poly.fit_transform(X)
+        
+        # Apply regression model
+        model = LinearRegression().fit(X_poly, Z)
+        
+        # Predict Z values
+        Z_pred = model.predict(X_poly)
+        XYZ_regression = np.column_stack((X, XYZ[:, 1], Z_pred))
+        self.ax.plot(XYZ_regression[:, 0], XYZ_regression[:, 2], '-r')
+        # Return the predicted XYZ coordinates
+        return XYZ_regression
+      
+
+
+
 
     def generate_virtual_line(self,actual_points, distance=1.0):
         """
@@ -204,11 +235,21 @@ class Cone_Detector:
     
     
     
-    def calculate_centerline(self, interpolated_yellow, interpolated_blue, bias_yellow=0.5, bias_blue=0.5):
-        
-        centerline = bias_yellow * interpolated_yellow + bias_blue * interpolated_blue
-        centerline /= (bias_yellow + bias_blue)
-        
+    def calculate_centerline(self, yellow_lane, blue_lane, bias_yellow=0.5):
+        # 두 레인의 길이를 가져옵니다.
+        len_yellow = len(yellow_lane)
+        len_blue = len(blue_lane)
+
+        # 더 작은 길이를 기준으로 중앙선을 계산합니다.
+        min_len = min(len_yellow, len_blue)
+
+        # 두 레인의 길이를 최소 길이로 조정합니다.
+        yellow_lane = yellow_lane[:min_len]
+        blue_lane = blue_lane[:min_len]
+
+        # 중앙선을 계산합니다.
+        centerline = (bias_yellow * yellow_lane) + ((1-bias_yellow) * blue_lane)
+
         return centerline
     
     
@@ -219,51 +260,46 @@ class Cone_Detector:
         distance = math.sqrt(distance)
         rate = rospy.Rate(15)
         while not rospy.is_shutdown():
-            
             try:
-                interpolated_yellow = self.interpolate_path(self.XYZ_yellow)
-                #self.interpolate_path(np.vstack((self.XYZ_yellow[:, 0],self.XYZ_yellow[:, 1], self.XYZ_yellow[:, 2])).T)
-                interpolated_blue = self.interpolate_path(self.XYZ_blue)
-                #self.interpolate_path(np.vstack((self.XYZ_blue[:, 0],self.XYZ_blue[:, 1], self.XYZ_blue[:, 2])).T)              
-                #print('yellow', interpolated_yellow.shape[0])
-                #print('blue', interpolated_blue.shape[0])
-                
-                if interpolated_yellow.shape[0] != 0 and interpolated_blue.shape[0] != 0:
-                    #print('yellow',interpolated_yellow)
-                    #print('blue',interpolated_blue)
-                    self.line = self.ax.plot(self.XYZ_blue[:,0],self.XYZ_blue[:,2],'ob')        
-                    self.line = self.ax.plot(self.XYZ_yellow[:,0],self.XYZ_yellow[:,2],'oy')  
-                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue, 0.6, 0.4)  
-                       
-                elif interpolated_yellow.shape[0] == 0 and interpolated_blue.shape[0] != 0:                  
-                    self.line = self.ax.plot(self.XYZ_blue[:,0],self.XYZ_blue[:,2],'ob')    
+                if self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] != 0:
+                    self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
+                    self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
+                    yellow_lane = self.interpolate_path(self.XYZ_yellow)
+                    blue_lane = self.interpolate_path(self.XYZ_blue)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane,0.6)
+                    
+                elif self.XYZ_yellow.shape[0] == 0 and self.XYZ_blue.shape[0] != 0:
+                    self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
                     virtual_yellow = self.generate_virtual_line(self.XYZ_blue, -distance)
-                    self.line = self.ax.plot(virtual_yellow[:,0],virtual_yellow[:,2],'oy')
-                    interpolated_yellow = self.interpolate_path(virtual_yellow)
-                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue, 0.6, 0.4)
+                    self.line =self.ax.plot(virtual_yellow[:,0], virtual_yellow[:,2],'oy')
+                    yellow_lane = self.interpolate_path(virtual_yellow)
+                    blue_lane = self.interpolate_path(self.XYZ_blue)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
                     
-                elif interpolated_yellow.shape[0] != 0  and interpolated_blue.shape[0] == 0:            
-                    self.line = self.ax.plot(self.XYZ_yellow[:,0],self.XYZ_yellow[:,2],'oy') 
+                elif self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] == 0:
+                    self.line = self.ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     virtual_blue = self.generate_virtual_line(self.XYZ_yellow, distance)
-                    self.line = self.ax.plot(virtual_blue[:,0],virtual_blue[:,2],'ob')
-                    interpolated_blue = self.interpolate_path(virtual_blue)
-                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue)
-                    
+                    self.line = self.ax.plot(virtual_blue[:,0], virtual_blue[:,2],'ob')
+                    yellow_lane = self.interpolate_path(self.XYZ_yellow)
+                    blue_lane = self.interpolate_path(virtual_blue)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
+                                    
                 else:
-                    interpolated_yellow = np.array([[1.0, 1.0, 3.0]])
+                    yellow_lane = np.array([[1.0, 1.0, 3.0]])
                     #print(interpolated_yellow)
-                    self.line = self.ax.plot(interpolated_yellow[:,0],interpolated_yellow[:,2],'oy')
-                    virtual_blue = self.generate_virtual_line(interpolated_yellow, distance)
-                    self.line = self.ax.plot(virtual_blue[:,0],virtual_blue[:,2],'ob')
-                    interpolated_blue = self.interpolate_path(virtual_blue)
-                    centerline = self.calculate_centerline(interpolated_yellow, interpolated_blue)
+                    self.line = self.ax.plot(yellow_lane[:,0], yellow_lane[:,2],'oy')
+                    blue_lane = self.generate_virtual_line(yellow_lane, distance)
+                    self.line = self.ax.plot(blue_lane[:,0], blue_lane[:,2],'ob')
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
        
+      
+                
                 self.line = self.ax.plot(centerline[:,0],centerline[:,2],'og')
                 # Plot the centerline on the XZ plane
                 self.ax.plot(centerline[:, 0], centerline[:, 2], '-g')
-                yellow_maker = self.publish_marker(interpolated_yellow, (1.0, 1.0, 0.0))  
+                yellow_maker = self.publish_marker(yellow_lane, (1.0, 1.0, 0.0))  
                 # Red for interpolated yellow path
-                blue_maker = self.publish_marker(interpolated_blue, (0.0, 0.0, 1.0))   
+                blue_maker = self.publish_marker(blue_lane, (0.0, 0.0, 1.0))   
                 # Blue for interpolated blue path
                 center_marker = self.publish_marker(centerline, (0.0, 1.0, 0.0))          
                 # Green for centerline                     
@@ -278,14 +314,15 @@ class Cone_Detector:
                 angle_rad = np.arctan2(y, x)
                 angle_deg = np.degrees(angle_rad)
                 steer_avg.calc_steer(angle_deg) 
-                                 
+                                
                 self.figure.canvas.draw()
                 self.figure.canvas.flush_events()
                 self.plt.cla()
                 
             except Exception as e:
-                #pass
-                print(e)
+                tb = traceback.format_exc()  # Get the traceback information
+                error_line = tb.split("\n")[-3]  # Extract the error line from the traceback
+                print(f"Error: {e} on {error_line}")
                         
             rate.sleep()        
         

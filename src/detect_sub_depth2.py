@@ -188,7 +188,7 @@ if __name__ == '__main__':
     box_topic = rospy.get_param("~input_box_topic", "/yolov5/detections")
     sub_boxes = rospy.Subscriber(box_topic, BoundingBoxes, bounding_boxes_callback)
     # Subscribe to the depth image topic
-    depth_image_topic = rospy.get_param("~depth_image_topic", 'usb_cam/image/raw')
+    depth_image_topic = rospy.get_param("~depth_image_topic", '/zed/zed_node/depth/depth_registered')
     deth_image = rospy.Subscriber(depth_image_topic, Image, depth_callback)  
     
     steer_avg = MovingAverage(5)

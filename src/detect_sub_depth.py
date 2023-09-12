@@ -112,9 +112,9 @@ def callbackdepth(msg):
 
 if __name__ == '__main__':
     rospy.init_node('yolo_sub')
-    rospy.wait_for_message("/yolov5/detections_c", BoundingBoxes)
+    rospy.wait_for_message("/yolov5/detections", BoundingBoxes)
     # Subscribe to the BoundingBoxes_c topic
-    sub_boxes = rospy.Subscriber('/yolov5/detections_c', BoundingBoxes, bounding_boxes_callback)
+    sub_boxes = rospy.Subscriber('/yolov5/detections', BoundingBoxes, bounding_boxes_callback)
     rospy.Subscriber("/zed/zed_node/depth/depth_registered", Image, callbackdepth)
     # plt.show()
     # rospy.spin()
