@@ -38,12 +38,13 @@ class Cone_Detector:
         self.XYZ_blue = np.array([])
         self.img_center = None
         self.ros_topic_func()
-        
+        self.goal_point = Point()
         
     def ros_topic_func(self):
         self.yellow_marker_publisher = rospy.Publisher("/path/yellow_marker", Marker, queue_size=10)
         self.blue_marker_publisher = rospy.Publisher("/path/blue_marker", Marker, queue_size=10)
         self.center_marker_publisher = rospy.Publisher("/path/center_paths_marker", Marker, queue_size=10)
+        self.goal_point_pub = rospy.Publisher('/goal_point', Point, queue_size= 1)
         # Subscribe to the BoundingBoxes topic
         box_topic = rospy.get_param("~input_box_topic", "/yolov5/detections")
         self.sub_boxes = rospy.Subscriber(box_topic, BoundingBoxes, self.bounding_boxes_callback, queue_size=1)
@@ -95,19 +96,20 @@ class Cone_Detector:
         
         try:
             self.yellow_cones.sort(key=lambda box: box.ymax, reverse=True)
-            self.yellow_cones.sort(key=lambda box: abs(self.yellow_cones[0].xmax-box.xmax), reverse=False)
-                     
+            self.yellow_cones.sort(key=lambda box: abs(self.yellow_cones[0].xmax - box.xmax), reverse=False)
+            self.yellow_cones = self.yellow_cones[:4]
         except:
             pass
-            
         try:
             self.XYZ_yellow = self.pixel2meter(self.yellow_cones, 1.03)
         except:
             pass
+     
             
         try:
             self.blue_cones.sort(key=lambda box: box.ymax, reverse=True)
-            self.blue_cones.sort(key=lambda box: abs(self.blue_cones[0].xmax-box.xmax), reverse=False)
+            self.blue_cones.sort(key=lambda box: abs(self.blue_cones[0].xmax - box.xmax), reverse=False)
+            self.blue_cones = self.blue_cones[:4]
         except:
             pass
         try:
@@ -284,7 +286,7 @@ class Cone_Detector:
 
         if virtual_points.ndim == 2 :
             virtual_points[:, 0] += distance  # adjust the X-coordinates by the given distance
-            virtual_points[:, 2] -= abs(distance)
+            #virtual_points[:, 2] -= abs(distance)
             
         else:
             pass
@@ -314,9 +316,8 @@ class Cone_Detector:
     
     
     def main(self):
-        steer_avg = MovingAverage(5)
-        distance = float(rospy.get_param("~distance", 2.2))
-        distance = math.sqrt(distance)
+        steer_avg = MovingAverage(10)
+        virtual_distance = float(rospy.get_param("~distance", 2.2))
         rate = rospy.Rate(15)
         while not rospy.is_shutdown():
             try:
@@ -327,44 +328,51 @@ class Cone_Detector:
                     distance = np.linalg.norm(yellow_first_cone - blue_first_cone)
 
                     if distance > 5:
-                        print("The first yellow and blue cones are more than 5 meters apart!")
+                        print("Too far from first cone")
                         if np.linalg.norm(self.XYZ_yellow[0]) < np.linalg.norm(self.XYZ_blue[0]):
-                            self.XYZ_blue = self.generate_virtual_line(self.XYZ_yellow, distance)
+                            self.XYZ_blue = np.array([])
                         else:
-                            self.XYZ_yellow = self.generate_virtual_line(self.XYZ_blue, -distance)    
+                            self.XYZ_yellow = np.array([])
+                yellow = 0.65
+                #if self.XYZ_blue.shape[0] <= 1:
+                #    yellow = 0.75
+                    
                 if self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] != 0:
+                    if self.XYZ_blue.shape[0] <= 1:
+                        yellow = 0.72
                     self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
                     yellow_lane = self.interpolate_path(self.XYZ_yellow)
                     blue_lane = self.interpolate_path(self.XYZ_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane,0.6)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
                     
                 elif self.XYZ_yellow.shape[0] == 0 and self.XYZ_blue.shape[0] != 0:
+                    
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
-                    virtual_yellow = self.generate_virtual_line(self.XYZ_blue, -distance)
+                    virtual_yellow = self.generate_virtual_line(self.XYZ_blue, -virtual_distance)
                     self.line =self.ax.plot(virtual_yellow[:,0], virtual_yellow[:,2],'oy')
                     yellow_lane = self.interpolate_path(virtual_yellow)
                     blue_lane = self.interpolate_path(self.XYZ_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, 1-yellow)
                     
                 elif self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] == 0:
                     self.line = self.ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
-                    virtual_blue = self.generate_virtual_line(self.XYZ_yellow, distance)
+                    virtual_blue = self.generate_virtual_line(self.XYZ_yellow, virtual_distance)
                     self.line = self.ax.plot(virtual_blue[:,0], virtual_blue[:,2],'ob')
                     yellow_lane = self.interpolate_path(self.XYZ_yellow)
                     blue_lane = self.interpolate_path(virtual_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
                                     
                 else:
                     yellow_lane = np.array([[1.0, 1.0, 3.0]])
                     #print(interpolated_yellow)
                     self.line = self.ax.plot(yellow_lane[:,0], yellow_lane[:,2],'oy')
-                    blue_lane = self.generate_virtual_line(yellow_lane, distance)
+                    blue_lane = self.generate_virtual_line(yellow_lane, virtual_distance)
                     self.line = self.ax.plot(blue_lane[:,0], blue_lane[:,2],'ob')
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
        
       
-                
+                center_index = 2
                 self.line = self.ax.plot(centerline[:,0],centerline[:,2],'og')
                 # Plot the centerline on the XZ plane
                 self.ax.plot(centerline[:, 0], centerline[:, 2], '-g')
@@ -378,14 +386,24 @@ class Cone_Detector:
                 self.blue_marker_publisher.publish(blue_maker)
                 self.center_marker_publisher.publish(center_marker)
                 #print(centerline)
-                x = centerline[0][2]
-                y = centerline[0][0]
+                try:
+                    x = centerline[center_index][2]
+                    y = centerline[center_index][0]
+                except:
+                    x = centerline[0][2]
+                    y = centerline[0][0]
+                    
+                '''
+                self.goal_point.x = centerline[0][2]
+                self.goal_point.y = centerline[0][0]
+                self.goal_point_pub.publish(self.goal_point)
+                '''
                 #print(x,y)
                 
                 angle_rad = np.arctan2(y, x)
                 angle_deg = np.degrees(angle_rad)
                 steer_avg.calc_steer(angle_deg) 
-                                
+                               
                 self.figure.canvas.draw()
                 self.figure.canvas.flush_events()
                 self.plt.cla()
@@ -404,7 +422,7 @@ class MovingAverage:
         self.data = []
         self.weights = list(range(1, n+1))
         self.state_pub = rospy.Publisher('set_state',setState , queue_size=10)
-        self.max_speed = int(rospy.get_param('~max_speed',5))
+        self.max_speed = float(rospy.get_param('~max_speed',5))
         self.L = 1.04
         self.set_state = setState()
         

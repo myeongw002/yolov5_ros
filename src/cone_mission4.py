@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 import rospy
-from sensor_msgs.msg import Image
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image, CompressedImage
 from detection_msgs.msg import BoundingBox, BoundingBoxes
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
@@ -21,6 +20,7 @@ import traceback
 
 
 class Cone_Detector:
+
     def __init__(self):
         self.K = np.array([684.1913452148438, 0.0, 482.5340881347656, 
                   0.0, 684.1913452148438, 255.77565002441406, 
@@ -100,7 +100,7 @@ class Cone_Detector:
             self.blue_cones.sort(key=lambda box: box.ymax, reverse=True)
             self.blue_cones.sort(key=lambda box: abs(self.blue_cones[0].xmax-box.xmax), reverse=False)
         except:
-            passs
+            pass
         #print('detected yellow',len(self.yellow_cones))
         #print('detected blue',len(self.blue_cones))
 
@@ -261,6 +261,21 @@ class Cone_Detector:
         rate = rospy.Rate(15)
         while not rospy.is_shutdown():
             try:
+            
+                if len(self.XYZ_yellow) > 0 and len(self.XYZ_blue) > 0:
+                    yellow_first_cone = self.XYZ_yellow[0]
+                    blue_first_cone = self.XYZ_blue[0]
+
+                    distance = np.linalg.norm(yellow_first_cone - blue_first_cone)
+
+                    if distance > 5:
+                        #print("The first yellow and blue cones are more than 5 meters apart!")
+                        if np.linalg.norm(self.XYZ_yellow[0]) < np.linalg.norm(self.XYZ_blue[0]):
+                            self.XYZ_blue = self.generate_virtual_line(self.XYZ_yellow, distance)
+                        else:
+                            self.XYZ_yellow = self.generate_virtual_line(self.XYZ_blue, -distance) 
+                            
+                            
                 if self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] != 0:
                     self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')

@@ -28,8 +28,8 @@
     <arg name="output_image_topic" default="/yolov5/image_out"/>
     
     <!-- other parameter-->
-    <arg name="max_speed" default="2"/>
-    <arg name="distance" default ="2.2"/>
+    <arg name="max_speed" default="4.5"/>
+    <arg name="distance" default ="1.5"/>
     
     
     
@@ -65,5 +65,11 @@
         <param name="distance" value="$(arg distance)"/>
     </node>
     
-
+    <!--
+    <node pkg="mission" name="lane_follwing" type="lane_following.py" output="screen">
+        <param name="max_speed" value="$(arg max_speed)"/>
+    </node>
+    -->
+    
+    
 </launch>
