@@ -338,8 +338,11 @@ class Cone_Detector:
                 #    yellow = 0.75
                     
                 if self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] != 0:
-                    if self.XYZ_blue.shape[0] <= 1:
+                    if self.XYZ_blue.shape[0] <= 2 and self.XYZ_yellow.shape[0]  >=2:
                         yellow = 0.72
+                    elif self.XYZ_yellow.shape[0] <= 2 and self.XYZ_blue.shape[0] >= 2:
+                        yellow = 1 - 0.72
+                        
                     self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
                     yellow_lane = self.interpolate_path(self.XYZ_yellow)

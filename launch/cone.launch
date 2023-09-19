@@ -28,7 +28,7 @@
     <arg name="output_image_topic" default="/yolov5/image_out"/>
     
     <!-- other parameter-->
-    <arg name="max_speed" default="4.5"/>
+    <arg name="max_speed" default="2"/>
     <arg name="distance" default ="1.5"/>
     
     
