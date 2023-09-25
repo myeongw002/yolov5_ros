@@ -28,9 +28,9 @@
     <arg name="output_image_topic" default="/yolov5/image_out"/>
     
     <!-- other parameter-->
-    <arg name="max_speed" default="2"/>
+    <arg name="max_speed" default="3"/>
     <arg name="distance" default ="1.5"/>
-    
+    <arg name="yellow_bias" default ="0.6"/>
     
     
     
@@ -58,11 +58,12 @@
         <param name="output_image_topic" value="$(arg output_image_topic)"/>
     </node>
 
-    <node pkg="yolov5_ros" name="depth_sub" type="cone_mission4_p2m.py" output="screen">
+    <node pkg="yolov5_ros" name="depth_sub" type="cone_mission5_p2m.py" output="screen">
         <param name="input_box_topic" value="$(arg output_topic)"/>
         <param name="depth_image_topic" value="$(arg depth_image_topic)"/>
         <param name="max_speed" value="$(arg max_speed)"/>
         <param name="distance" value="$(arg distance)"/>
+        <param name="yellow_bias" value="$(arg yellow_bias)"/>
     </node>
     
     <!--

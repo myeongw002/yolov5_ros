@@ -39,7 +39,8 @@ class Cone_Detector:
         self.img_center = None
         self.ros_topic_func()
         self.goal_point = Point()
-        
+        self.prev_yellow = []
+        self.prev_blue = []
     def ros_topic_func(self):
         self.yellow_marker_publisher = rospy.Publisher("/path/yellow_marker", Marker, queue_size=10)
         self.blue_marker_publisher = rospy.Publisher("/path/blue_marker", Marker, queue_size=10)
@@ -313,7 +314,43 @@ class Cone_Detector:
 
         return centerline
     
-    
+ 
+ 
+    def calculate_center_index(self,centerline):
+        num_points = len(centerline)
+        threshhold = 6
+        if num_points <= 1:
+            center_index = 0
+
+        elif num_points == 2:
+            angle_0 = np.degrees(np.arctan2(centerline[0][0], centerline[0][2]))
+            # 0번째 인덱스와 1번째 인덱스 점의 각도 계산
+            angle_1 = np.degrees(np.arctan2(centerline[1][0], centerline[1][2]))
+            print(angle_0, angle_1)
+            if abs(angle0 - angle1) > threshhold:
+                center_index = 0
+            else:    
+                center_index = 1
+                
+        else:
+            # 원점과 0번째 인덱스 점의 각도 계산
+            angle_0 = np.degrees(np.arctan2(centerline[0][0], centerline[0][2]))
+            # 0번째 인덱스와 1번째 인덱스 점의 각도 계산
+            angle_1 = np.degrees(np.arctan2(centerline[1][0], centerline[1][2]))
+            # 1번째 인덱스와 2번째 인덱스 점의 각도 계산
+            angle_2 = np.degrees(np.arctan2(centerline[2][0], centerline[2][2]))
+            print(angle_0, angle_1, angle_2)
+            
+            # 각도 비교 및 center_index 결정
+            if abs(angle_0 - angle_1) > threshhold:
+                center_index = 0
+            elif abs(angle_0 - angle_1) < threshhold and abs(angle_1 - angle_2) > threshhold:
+                center_index = 1
+            elif abs(angle_0 - angle_1) < threshhold and abs(angle_1 - angle_2) < threshhold:
+                center_index = 2    
+            
+        return center_index
+
     
     def main(self):
         steer_avg = MovingAverage(7)
@@ -333,30 +370,35 @@ class Cone_Detector:
                             self.XYZ_blue = np.array([])
                         else:
                             self.XYZ_yellow = np.array([])
-                yellow = 0.62
+                yellow_bias = rospy.get_param('~yellow_bias', 0.6)
                 #if self.XYZ_blue.shape[0] <= 1:
                 #    yellow = 0.75
                     
                 if self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] != 0:
                     if self.XYZ_blue.shape[0] <= 2 and self.XYZ_yellow.shape[0]  >=2:
-                        yellow = 0.7
+                        yellow_bias = yellow_bias + 0.1
                     elif self.XYZ_yellow.shape[0] <= 2 and self.XYZ_blue.shape[0] >= 2:
-                        yellow = 1 - 0.7
+                        yellow = 1 - (yellow_bias + 0.1)
                         
                     self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
                     yellow_lane = self.interpolate_path(self.XYZ_yellow)
                     blue_lane = self.interpolate_path(self.XYZ_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow_bias)
+                    self.prev_yellow = yellow_lane
+                    self.prev_blue = blue_lane
+                    
                     
                 elif self.XYZ_yellow.shape[0] == 0 and self.XYZ_blue.shape[0] != 0:
-                    
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
                     virtual_yellow = self.generate_virtual_line(self.XYZ_blue, -virtual_distance)
                     self.line =self.ax.plot(virtual_yellow[:,0], virtual_yellow[:,2],'oy')
                     yellow_lane = self.interpolate_path(virtual_yellow)
                     blue_lane = self.interpolate_path(self.XYZ_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane, 1-yellow)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, 1-yellow_bias)
+                    self.prev_blue = blue_lane
+                    
+                    
                     
                 elif self.XYZ_yellow.shape[0] != 0 and self.XYZ_blue.shape[0] == 0:
                     self.line = self.ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
@@ -364,18 +406,36 @@ class Cone_Detector:
                     self.line = self.ax.plot(virtual_blue[:,0], virtual_blue[:,2],'ob')
                     yellow_lane = self.interpolate_path(self.XYZ_yellow)
                     blue_lane = self.interpolate_path(virtual_blue)
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
+                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow_bias)
+                    self.prev_yellow = yellow_lane
+                    
                                     
                 else:
-                    yellow_lane = np.array([[1.0, 1.0, 3.0]])
-                    #print(interpolated_yellow)
-                    self.line = self.ax.plot(yellow_lane[:,0], yellow_lane[:,2],'oy')
-                    blue_lane = self.generate_virtual_line(yellow_lane, virtual_distance)
-                    self.line = self.ax.plot(blue_lane[:,0], blue_lane[:,2],'ob')
-                    centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow)
-       
+                    if self.prev_yellow is not None and self.prev_blue is not None:
+                        if self.prev_yellow.shape[0] <= 2 and self.prev_blue.shape[0]  >=2:
+                            yellow_bias = yellow_bias + 0.1
+                        elif self.prev_yellow.shape[0] <= 2 and self.prev_blue.shape[0] >= 2:
+                            yellow = 1 - (yellow_bias + 0.1)
+                        centerline = self.calculate_centerline(yellow_lane, blue_lane, yellow_bias)
+                    
+                    elif self.prev_yellow is not None and self.prev_blue is  None:
+                        blue_lane = self.generate_virtual_line(self.prev_yellow, virtual_distance)                   
+                        centerline = self.calculate_centerline(self.prev_yellow, blue_lane, yellow_bias)
+                        
+                    elif self.prev_yellow is None and self.prev_blue is not None:
+                        yellow_lane = self.generate_virtual_line(self.prev_blue, virtual_distance)                   
+                        centerline = self.calculate_centerline(yellow_lane, self.prev_blue, 1 - yellow_bias)
+                    
+                    else:
+                        yellow_lane = np.array([[1.0, 1.0, 3.0]])
+                        #print(interpolated_yellow)
+                        self.line = self.ax.plot(yellow_lane[:,0], yellow_lane[:,2],'oy')
+                        blue_lane = self.generate_virtual_line(yellow_lane, virtual_distance)
+                        self.line = self.ax.plot(blue_lane[:,0], blue_lane[:,2],'ob')
+                        centerline = self.calculate_centerline(yellow_lane, blue_lane)
+           
       
-                center_index = 1
+                
                 self.line = self.ax.plot(centerline[:,0],centerline[:,2],'og')
                 # Plot the centerline on the XZ plane
                 self.ax.plot(centerline[:, 0], centerline[:, 2], '-g')
@@ -389,12 +449,12 @@ class Cone_Detector:
                 self.blue_marker_publisher.publish(blue_maker)
                 self.center_marker_publisher.publish(center_marker)
                 #print(centerline)
-                try:
-                    x = centerline[center_index][2]
-                    y = centerline[center_index][0]
-                except:
-                    x = centerline[0][2]
-                    y = centerline[0][0]
+                center_index = self.calculate_center_index(centerline)
+                print(center_index)
+                
+                x = centerline[center_index][2]
+                y = centerline[center_index][0]
+
                     
                 '''
                 self.goal_point.x = centerline[0][2]
