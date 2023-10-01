@@ -30,7 +30,7 @@
     <!-- other parameter-->
     <arg name="max_speed" default="3"/>
     <arg name="distance" default ="1.5"/>
-    <arg name="yellow_bias" default ="0.6"/>
+    <arg name="yellow_bias" default ="0.51"/>
     
     
     

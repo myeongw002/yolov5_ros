@@ -21,6 +21,7 @@ import traceback
 
 
 class Cone_Detector:
+
     def __init__(self):
         self.K = np.array([684.1913452148438, 0.0, 482.5340881347656, 
                   0.0, 684.1913452148438, 255.77565002441406, 
@@ -41,6 +42,11 @@ class Cone_Detector:
         self.goal_point = Point()
         self.prev_yellow = []
         self.prev_blue = []
+        
+        
+        
+        
+        
     def ros_topic_func(self):
         self.yellow_marker_publisher = rospy.Publisher("/path/yellow_marker", Marker, queue_size=10)
         self.blue_marker_publisher = rospy.Publisher("/path/blue_marker", Marker, queue_size=10)
@@ -54,6 +60,8 @@ class Cone_Detector:
         #self.deth_image_sub = rospy.Subscriber(depth_image_topic, Image, self.depth_callback, queue_size=1)
         rospy.wait_for_message(depth_image_topic, Image)
         rospy.wait_for_message(box_topic, BoundingBoxes)
+        
+        
         
         
     def publish_marker(self,points, color):
@@ -93,7 +101,6 @@ class Cone_Detector:
                 self.blue_cones.append(bounding_box)
 
         # Sort the cones by ycenter in descending order
-        
         
         try:
             self.yellow_cones.sort(key=lambda box: box.ymax, reverse=True)
@@ -353,7 +360,7 @@ class Cone_Detector:
 
     
     def main(self):
-        steer_avg = MovingAverage(7)
+        steer_avg = MovingAverage(6)
         virtual_distance = float(rospy.get_param("~distance", 2.2))
         rate = rospy.Rate(15)
         while not rospy.is_shutdown():
@@ -378,7 +385,7 @@ class Cone_Detector:
                     if self.XYZ_blue.shape[0] <= 2 and self.XYZ_yellow.shape[0]  >=2:
                         yellow_bias = yellow_bias + 0.1
                     elif self.XYZ_yellow.shape[0] <= 2 and self.XYZ_blue.shape[0] >= 2:
-                        yellow = 1 - (yellow_bias + 0.1)
+                        yellow_bias = 1 - (yellow_bias + 0.1)
                         
                     self.line =self. ax.plot(self.XYZ_yellow[:,0], self.XYZ_yellow[:,2],'oy')
                     self.line = self.ax.plot(self.XYZ_blue[:,0], self.XYZ_blue[:,2],'ob')
@@ -489,22 +496,31 @@ class MovingAverage:
         self.L = 1.04
         self.set_state = setState()
         
+        
+        
+        
     def add_sample(self, new_sample):
         if len(self.data) < self.samples:
             self.data.append(new_sample)
         else:
             self.data = self.data[1:] + [new_sample]
             
+            
+            
+            
     def get_wmm(self):
         s = 0
         for i, x in enumerate(self.data):
             s += x * self.weights[i]
+            
         return float(s) / sum(self.weights[:len(self.data)])
+
+
+
 
     def calculate_curvature(self, steer_angle):
         # Convert steering angle from degrees to radians
         steer_angle_rad = steer_angle * (math.pi / 180)
-        
         curvature = 2 * math.sin(steer_angle_rad) / self.L
 
         return abs(curvature)
@@ -514,17 +530,22 @@ class MovingAverage:
         #print(speed)
         # Ensure speed is positive and doesn't exceed v_max
         speed = max(1, min(self.max_speed, speed))
+        
         return speed
 
 
     def calc_steer(self,steer):
-        
         #print(steer)
         self.add_sample(steer)
         self.set_state.set_gear = 0
         self.set_state.set_degree = self.get_wmm()
-        #curvature = self.calculate_curvature(self.set_state.set_degree)        
-        self.set_state.set_velocity = self.max_speed #self.calculate_speed(curvature, 0.3)
+    
+        if abs(self.set_state.set_degree) > 10:        
+            curvature = self.calculate_curvature(self.set_state.set_degree)        
+            self.set_state.set_velocity = self.calculate_speed(curvature, 0.5)
+        
+        else: 
+            self.set_state.set_velocity = self.max_speed
         
         self.state_pub.publish(self.set_state)        
         rospy.loginfo(f'speed:{self.set_state.set_velocity}, steer:{steer}')
