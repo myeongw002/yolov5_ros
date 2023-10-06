@@ -541,8 +541,9 @@ class MovingAverage:
         self.set_state.set_degree = self.get_wmm()
     
         if abs(self.set_state.set_degree) > 10:        
-            curvature = self.calculate_curvature(self.set_state.set_degree)        
-            self.set_state.set_velocity = self.calculate_speed(curvature, 0.5)
+            curvature = self.calculate_curvature(self.set_state.set_degree)    
+            k = self.max_speed * 0.09    
+            self.set_state.set_velocity = self.calculate_speed(curvature, k)
         
         else: 
             self.set_state.set_velocity = self.max_speed
