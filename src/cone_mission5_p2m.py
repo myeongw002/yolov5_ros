@@ -7,7 +7,6 @@ from detection_msgs.msg import BoundingBox, BoundingBoxes
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 from std_msgs.msg import Int64
-from erp42_serial.msg import ESerial, setState
 import cv2
 from cv_bridge import CvBridge
 import numpy as np
@@ -334,7 +333,7 @@ class Cone_Detector:
             # 0번째 인덱스와 1번째 인덱스 점의 각도 계산
             angle_1 = np.degrees(np.arctan2(centerline[1][0], centerline[1][2]))
             print(angle_0, angle_1)
-            if abs(angle0 - angle1) > threshhold:
+            if abs(angle_0 - angle-1) > threshhold:
                 center_index = 0
             else:    
                 center_index = 1
@@ -360,7 +359,7 @@ class Cone_Detector:
 
     
     def main(self):
-        steer_avg = MovingAverage(6)
+        
         virtual_distance = float(rospy.get_param("~distance", 2.2))
         rate = rospy.Rate(15)
         while not rospy.is_shutdown():
@@ -472,7 +471,7 @@ class Cone_Detector:
                 
                 angle_rad = np.arctan2(y, x)
                 angle_deg = np.degrees(angle_rad)
-                steer_avg.calc_steer(angle_deg) 
+                
                                
                 self.figure.canvas.draw()
                 self.figure.canvas.flush_events()
@@ -486,70 +485,7 @@ class Cone_Detector:
             rate.sleep()        
         
 
-class MovingAverage:
-    def __init__(self, n):
-        self.samples = n
-        self.data = []
-        self.weights = list(range(1, n+1))
-        self.state_pub = rospy.Publisher('set_state',setState , queue_size=10)
-        self.max_speed = float(rospy.get_param('~max_speed',5))
-        self.L = 1.04
-        self.set_state = setState()
-        
-        
-        
-        
-    def add_sample(self, new_sample):
-        if len(self.data) < self.samples:
-            self.data.append(new_sample)
-        else:
-            self.data = self.data[1:] + [new_sample]
-            
-            
-            
-            
-    def get_wmm(self):
-        s = 0
-        for i, x in enumerate(self.data):
-            s += x * self.weights[i]
-            
-        return float(s) / sum(self.weights[:len(self.data)])
 
-
-
-
-    def calculate_curvature(self, steer_angle):
-        # Convert steering angle from degrees to radians
-        steer_angle_rad = steer_angle * (math.pi / 180)
-        curvature = 2 * math.sin(steer_angle_rad) / self.L
-
-        return abs(curvature)
-
-    def calculate_speed(self, curvature,Kf=0.5538):
-        speed = self.max_speed * (1 - curvature * Kf)
-        #print(speed)
-        # Ensure speed is positive and doesn't exceed v_max
-        speed = max(1, min(self.max_speed, speed))
-        
-        return speed
-
-
-    def calc_steer(self,steer):
-        #print(steer)
-        self.add_sample(steer)
-        self.set_state.set_gear = 0
-        self.set_state.set_degree = self.get_wmm()
-    
-        if abs(self.set_state.set_degree) > 10:        
-            curvature = self.calculate_curvature(self.set_state.set_degree)    
-            k = self.max_speed * 0.09    
-            self.set_state.set_velocity = self.calculate_speed(curvature, k)
-        
-        else: 
-            self.set_state.set_velocity = self.max_speed
-        
-        self.state_pub.publish(self.set_state)        
-        rospy.loginfo(f'speed:{self.set_state.set_velocity}, steer:{steer}')
 
 
 
